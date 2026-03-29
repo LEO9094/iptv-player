@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamVault — Live TV</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --card: #1a1a24;
+    --border: #2a2a3a;
+    --accent: #e8ff47;
+    --accent2: #47ffcf;
+    --text: #f0f0f5;
+    --muted: #6b6b80;
+    --live: #ff4747;
+    --radius: 8px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex; align-items: center; gap: 20px;
+    height: 60px;
+  }
+
+  .logo {
+    font-size: 1.2rem; font-weight: 800; letter-spacing: -0.5px;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .logo span { color: var(--accent); }
+
+  .search-wrap {
+    flex: 1; max-width: 400px;
+    position: relative;
+  }
+  .search-wrap svg {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    color: var(--muted); pointer-events: none;
+  }
+  #searchInput {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82rem;
+    padding: 9px 12px 9px 38px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  #searchInput:focus { border-color: var(--accent); }
+  #searchInput::placeholder { color: var(--muted); }
+
+  .stats {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .stats b { color: var(--accent2); }
+
+  /* ── LAYOUT ── */
+  .app {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: calc(100vh - 60px);
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px 0;
+    position: sticky;
+    top: 60px;
+    height: calc(100vh - 60px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .sidebar-title {
+    font-size: 0.65rem; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 16px 10px;
+  }
+
+  .cat-btn {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 10px 16px;
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-family: 'Syne', sans-serif;
+    font-size: 0.85rem; text-align: left;
+    transition: all 0.15s;
+    border-left: 2px solid transparent;
+  }
+  .cat-btn:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+  .cat-btn.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    background: rgba(232,255,71,0.06);
+  }
+  .cat-btn .count {
+    margin-left: auto;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+  .cat-btn.active .count { color: var(--accent); }
+
+  .divider {
+    height: 1px; background: var(--border);
+    margin: 10px 16px;
+  }
+
+  /* ── MAIN ── */
+  main {
+    padding: 20px 24px;
+  }
+
+  /* ── PLAYER ── */
+  .player-section {
+    display: none;
+    margin-bottom: 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .player-section.visible { display: block; }
+
+  .player-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .now-playing {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .live-badge {
+    background: var(--live);
+    color: white;
+    font-size: 0.65rem; font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 3px 7px; border-radius: 3px;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+  .now-playing-name {
+    font-size: 0.95rem; font-weight: 700;
+  }
+  .close-player {
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); padding: 4px;
+    border-radius: 4px; transition: color 0.15s;
+  }
+  .close-player:hover { color: var(--text); }
+
+  #videoPlayer {
+    width: 100%; max-height: 420px;
+    background: #000;
+    display: block;
+  }
+
+  .player-error {
+    display: none;
+    padding: 40px 20px; text-align: center;
+    color: var(--muted); font-size: 0.9rem;
+  }
+  .retry-btn {
+    margin-top: 12px;
+    background: var(--accent); color: #000;
+    border: none; border-radius: 6px;
+    padding: 8px 20px; font-family: 'Syne', sans-serif;
+    font-weight: 700; cursor: pointer; font-size: 0.85rem;
+  }
+
+  /* ── CHANNEL LIST ── */
+  .list-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .list-title {
+    font-size: 0.75rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .view-tabs {
+    display: flex; gap: 4px;
+  }
+  .view-tab {
+    background: none; border: 1px solid var(--border);
+    color: var(--muted); padding: 5px 10px;
+    border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    transition: all 0.15s;
+  }
+  .view-tab.active {
+    background: var(--accent); color: #000; border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  #channelList {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+
+  .channel-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .channel-item:hover {
+    border-color: rgba(232,255,71,0.3);
+    background: rgba(232,255,71,0.04);
+    transform: translateX(2px);
+  }
+  .channel-item.playing {
+    border-color: var(--accent);
+    background: rgba(232,255,71,0.08);
+  }
+
+  .ch-index {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem; color: var(--muted);
+    min-width: 28px; text-align: right;
+  }
+
+  .ch-logo {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    object-fit: contain;
+    flex-shrink: 0;
+    /* Prevent imgur rate limit — only load on hover/visible */
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .ch-logo.loaded { opacity: 1; }
+  .ch-logo-placeholder {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; font-weight: 700; color: var(--muted);
+    flex-shrink: 0;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .ch-info { flex: 1; min-width: 0; }
+  .ch-name {
+    font-size: 0.9rem; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ch-group {
+    font-size: 0.72rem; color: var(--muted);
+    margin-top: 2px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .ch-actions {
+    display: flex; align-items: center; gap: 6px;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .channel-item:hover .ch-actions { opacity: 1; }
+
+  .fav-btn {
+    background: none; border: none; cursor: pointer;
+    padding: 5px; color: var(--muted);
+    border-radius: 4px; transition: color 0.15s;
+    font-size: 1rem;
+  }
+  .fav-btn:hover, .fav-btn.active { color: #ffb347; }
+
+  .play-btn {
+    background: var(--accent); color: #000;
+    border: none; border-radius: 5px;
+    padding: 6px 12px; font-family: 'Syne', sans-serif;
+    font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .play-btn:hover { opacity: 0.85; }
+
+  /* playing indicator */
+  .playing-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%; background: var(--accent);
+    animation: pulse 1.2s infinite;
+    flex-shrink: 0;
+  }
+
+  /* ── EMPTY ── */
+  .empty {
+    text-align: center; padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .empty p { font-size: 0.9rem; }
+
+  /* ── HEALTH BADGE ── */
+  .health-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem; font-weight: 700;
+    padding: 2px 7px; border-radius: 10px;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  .health-badge.checking {
+    background: rgba(107,107,128,0.2);
+    color: var(--muted);
+    animation: blink 1s infinite;
+  }
+  .health-badge.live {
+    background: rgba(71,255,207,0.15);
+    color: var(--accent2);
+    border: 1px solid rgba(71,255,207,0.3);
+  }
+  .health-badge.dead {
+    background: rgba(255,71,71,0.12);
+    color: #ff6b6b;
+    border: 1px solid rgba(255,71,71,0.25);
+  }
+  .health-badge.slow {
+    background: rgba(255,200,50,0.12);
+    color: #ffc832;
+    border: 1px solid rgba(255,200,50,0.25);
+  }
+  .health-badge.unknown {
+    background: rgba(107,107,128,0.15);
+    color: var(--muted);
+    border: 1px solid rgba(107,107,128,0.2);
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .channel-item.dead-stream {
+    opacity: 0.4;
+  }
+  .channel-item.dead-stream .ch-name {
+    text-decoration: line-through;
+    text-decoration-color: #ff6b6b;
+  }
+
+  /* ── HEALTH TOOLBAR ── */
+  .health-toolbar {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px;
+    padding: 10px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    flex-wrap: wrap;
+  }
+  .health-toolbar .label {
+    font-size: 0.75rem; color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    white-space: nowrap;
+  }
+  .check-btn {
+    background: var(--accent); color: #000;
+    border: none; border-radius: 5px;
+    padding: 6px 14px; font-family: 'Syne', sans-serif;
+    font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s; white-space: nowrap;
+  }
+  .check-btn:hover { opacity: 0.85; }
+  .check-btn:disabled {
+    background: var(--border); color: var(--muted); cursor: not-allowed;
+  }
+  .filter-dead-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 5px;
+    padding: 6px 12px; font-family: 'Syne', sans-serif;
+    font-size: 0.78rem; font-weight: 600; cursor: pointer;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .filter-dead-btn.active {
+    border-color: var(--accent2); color: var(--accent2);
+    background: rgba(71,255,207,0.07);
+  }
+  .health-stats {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto;
+  }
+  .hstat {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .hstat .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+  }
+  .dot-live { background: var(--accent2); }
+  .dot-dead { background: #ff6b6b; }
+  .dot-slow { background: #ffc832; }
+
+  .progress-wrap {
+    width: 100%; height: 3px;
+    background: var(--border); border-radius: 2px;
+    overflow: hidden; display: none;
+  }
+  .progress-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 2px; transition: width 0.3s;
+    width: 0%;
+  }
+
+  /* ── LOAD MORE ── */
+  #loadMoreBtn {
+    display: none;
+    margin: 20px auto 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 10px 28px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700; font-size: 0.85rem;
+    cursor: pointer; transition: all 0.15s;
+  }
+  #loadMoreBtn:hover {
+    border-color: var(--accent); color: var(--accent);
+  }
+
+  /* ── LOADING ── */
+  .loading-screen {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 999;
+    gap: 16px;
+  }
+  .loading-logo {
+    font-size: 1.8rem; font-weight: 800;
+  }
+  .loading-logo span { color: var(--accent); }
+  .loading-bar {
+    width: 200px; height: 3px;
+    background: var(--border); border-radius: 2px;
+    overflow: hidden;
+  }
+  .loading-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 2px;
+    animation: loadanim 2s ease forwards;
+  }
+  @keyframes loadanim { from { width: 0; } to { width: 100%; } }
+  .loading-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem; color: var(--muted);
+  }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 20px;
+    font-family: 'DM Mono', monospace; font-size: 0.8rem;
+    transition: transform 0.3s; z-index: 200;
+    white-space: nowrap;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 700px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar {
+      position: static; height: auto;
+      display: flex; flex-wrap: wrap; gap: 4px;
+      padding: 12px;
+      overflow-y: visible;
+    }
+    .sidebar-title, .divider { display: none; }
+    .cat-btn {
+      border: 1px solid var(--border); border-radius: 20px;
+      padding: 6px 12px; width: auto;
+      border-left: 1px solid var(--border);
+      font-size: 0.78rem;
+    }
+    .cat-btn.active { border-color: var(--accent); }
+    header { gap: 12px; }
+    .stats { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div class="loading-screen" id="loadingScreen">
+  <div class="loading-logo">Stream<span>Vault</span></div>
+  <div class="loading-bar"><div class="loading-fill"></div></div>
+  <div class="loading-text" id="loadingText">Fetching channels…</div>
+</div>
+
+<!-- Header -->
+<header>
+  <div class="logo">Stream<span>Vault</span></div>
+  <div class="search-wrap">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input type="text" id="searchInput" placeholder="Search channels…" autocomplete="off">
+  </div>
+  <div class="stats">
+    <b id="totalCount">0</b> channels loaded
+  </div>
+</header>
+
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-title">Categories</div>
+    <button class="cat-btn active" data-cat="all" onclick="filterCategory('all', this)">
+      <span>📡</span> All Channels <span class="count" id="cnt-all">0</span>
+    </button>
+    <button class="cat-btn" data-cat="fav" onclick="filterCategory('fav', this)">
+      <span>⭐</span> Favorites <span class="count" id="cnt-fav">0</span>
+    </button>
+    <div class="divider"></div>
+    <div id="categoryList"></div>
+  </aside>
+
+  <!-- Main -->
+  <main>
+    <!-- Player -->
+    <section class="player-section" id="playerSection">
+      <div class="player-header">
+        <div class="now-playing">
+          <span class="live-badge">LIVE</span>
+          <span class="now-playing-name" id="nowPlayingName">—</span>
+        </div>
+        <button class="close-player" onclick="closePlayer()" title="Close">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <video id="videoPlayer" controls autoplay playsinline></video>
+      <div class="player-error" id="playerError">
+        <div style="font-size:2rem">📡</div>
+        <p>Stream unavailable or geo-restricted.<br>Try another channel.</p>
+        <button class="retry-btn" onclick="retryStream()">↺ Retry</button>
+      </div>
+    </section>
+
+    <!-- List header -->
+    <div class="list-header">
+      <div class="list-title" id="listTitle">All Channels</div>
+    </div>
+
+    <!-- Health Checker Toolbar -->
+    <div class="health-toolbar" id="healthToolbar">
+      <span class="label">Stream health check (info only — dead streams still playable):</span>
+      <button class="check-btn" id="checkBtn" onclick="startHealthCheck()">⚡ Check visible streams</button>
+      <button class="filter-dead-btn" id="filterDeadBtn" onclick="toggleHideDeadStreams()">Hide dead streams</button>
+      <div class="health-stats" id="healthStats" style="display:none">
+        <span class="hstat"><span class="dot dot-live"></span><span id="liveCount">0</span> live</span>
+        <span class="hstat"><span class="dot dot-slow"></span><span id="slowCount">0</span> slow</span>
+        <span class="hstat"><span class="dot dot-dead"></span><span id="deadCount">0</span> dead</span>
+      </div>
+    </div>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+
+    <!-- Channel list -->
+    <div id="channelList"></div>
+    <button id="loadMoreBtn" onclick="loadMore()">Load More ↓</button>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── CONFIG ──
+const M3U_URL = 'https://iptv-org.github.io/iptv/index.m3u';
+const PAGE_SIZE = 50;
+
+// ── STATE ──
+let allChannels = [];
+let filtered = [];
+let page = 0;
+let currentCat = 'all';
+let currentChannel = null;
+let hlsInstance = null;
+let retryUrl = null;
+let favorites = JSON.parse(localStorage.getItem('sv_favs') || '[]');
+
+// ── INIT ──
+window.addEventListener('load', async () => {
+  try {
+    updateLoadingText('Connecting to source…');
+    const raw = await fetchM3U();
+    updateLoadingText('Parsing channels…');
+    allChannels = parseM3U(raw);
+    updateLoadingText(`${allChannels.length} channels found!`);
+    await delay(600);
+    buildCategories();
+    applyFilter();
+    document.getElementById('totalCount').textContent = allChannels.length.toLocaleString();
+    document.getElementById('loadingScreen').style.opacity = '0';
+    setTimeout(() => document.getElementById('loadingScreen').style.display = 'none', 400);
+  } catch (e) {
+    updateLoadingText('');
+    document.getElementById('loadingScreen').innerHTML = `
+      <div style="text-align:center;padding:40px;max-width:500px">
+        <div style="font-size:2rem;margin-bottom:16px">⚠️</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#f0f0f5;margin-bottom:12px">Playlist load failed</div>
+        <div style="font-size:0.8rem;color:#6b6b80;font-family:monospace;background:#1a1a24;padding:12px;border-radius:8px;margin-bottom:16px;text-align:left">
+          Check browser console (F12) for details.<br><br>
+          Common fix: Make sure <b style="color:#e8ff47">api/playlist.js</b> is deployed to Vercel.
+        </div>
+        <button onclick="location.reload()" style="background:#e8ff47;color:#000;border:none;padding:10px 24px;border-radius:6px;font-weight:700;cursor:pointer;font-size:0.9rem">↺ Retry</button>
+      </div>`;
+    console.error(e);
+  }
+});
+
+// ── FETCH ──
+async function fetchM3U() {
+  // Only use our own Vercel API — no external proxies needed
+  try {
+    updateLoadingText('Loading channels…');
+    const res = await fetch('/api/playlist');
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.includes('#EXTM3U') && text.includes('http')) {
+        console.log('✅ Loaded via /api/playlist');
+        return text;
+      }
+    }
+  } catch (e) {
+    console.warn('/api/playlist failed:', e.message);
+  }
+
+  // Last resort: static file (if deployed)
+  try {
+    const res = await fetch('/playlist.m3u');
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.includes('#EXTM3U') && text.includes('http')) {
+        console.log('✅ Loaded via /playlist.m3u');
+        return text;
+      }
+    }
+  } catch (e) {
+    console.warn('/playlist.m3u failed:', e.message);
+  }
+
+  throw new Error('All sources failed — check Vercel deployment includes api/playlist.js');
+}
+
+// ── PARSE M3U ──
+function parseM3U(text) {
+  const lines = text.split('\n');
+  const channels = [];
+  let meta = {};
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('#EXTINF:')) {
+      meta = {};
+      meta.name = line.replace(/.*,/, '').trim() || 'Unknown';
+      meta.logo = (line.match(/tvg-logo="([^"]*)"/) || [])[1] || '';
+      meta.group = (line.match(/group-title="([^"]*)"/) || [])[1] || 'Other';
+      meta.id = (line.match(/tvg-id="([^"]*)"/) || [])[1] || '';
+    } else if (line.startsWith('http') && meta.name) {
+      channels.push({ ...meta, url: line });
+      meta = {};
+    }
+  }
+  return channels;
+}
+
+// ── CATEGORIES ──
+function buildCategories() {
+  const counts = {};
+  allChannels.forEach(c => {
+    const g = c.group || 'Other';
+    counts[g] = (counts[g] || 0) + 1;
+  });
+  document.getElementById('cnt-all').textContent = allChannels.length.toLocaleString();
+  document.getElementById('cnt-fav').textContent = favorites.length;
+
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const catList = document.getElementById('categoryList');
+  catList.innerHTML = '';
+  sorted.forEach(([cat, cnt]) => {
+    const btn = document.createElement('button');
+    btn.className = 'cat-btn';
+    btn.dataset.cat = cat;
+    btn.onclick = () => filterCategory(cat, btn);
+    btn.innerHTML = `<span>${catIcon(cat)}</span> ${escHtml(cat)} <span class="count">${cnt.toLocaleString()}</span>`;
+    catList.appendChild(btn);
+  });
+}
+
+function catIcon(g) {
+  g = g.toLowerCase();
+  if (g.includes('news')) return '📰';
+  if (g.includes('sport')) return '⚽';
+  if (g.includes('movie') || g.includes('film') || g.includes('cinema')) return '🎬';
+  if (g.includes('kids') || g.includes('child')) return '🧒';
+  if (g.includes('music')) return '🎵';
+  if (g.includes('entertain')) return '🎭';
+  if (g.includes('docu')) return '🎥';
+  if (g.includes('religion') || g.includes('faith')) return '✝️';
+  if (g.includes('shop')) return '🛍️';
+  if (g.includes('cook') || g.includes('food')) return '🍳';
+  if (g.includes('travel')) return '✈️';
+  if (g.includes('tech')) return '💻';
+  if (g.includes('adult')) return '🔞';
+  return '📺';
+}
+
+// ── FILTER ──
+function filterCategory(cat, btn) {
+  currentCat = cat;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  page = 0;
+  applyFilter();
+}
+
+function applyFilter() {
+  const q = document.getElementById('searchInput').value.toLowerCase().trim();
+  let pool = allChannels;
+  if (currentCat === 'fav') {
+    pool = allChannels.filter(c => favorites.includes(c.url));
+  } else if (currentCat !== 'all') {
+    pool = allChannels.filter(c => c.group === currentCat);
+  }
+  if (q) {
+    pool = pool.filter(c =>
+      c.name.toLowerCase().includes(q) || c.group.toLowerCase().includes(q)
+    );
+  }
+  filtered = pool;
+
+  const title = currentCat === 'all' ? 'All Channels'
+    : currentCat === 'fav' ? '⭐ Favorites'
+    : currentCat;
+  document.getElementById('listTitle').textContent =
+    `${title} (${filtered.length.toLocaleString()})`;
+
+  renderChannels(true);
+}
+
+// ── RENDER ──
+function renderChannels(reset) {
+  const list = document.getElementById('channelList');
+  if (reset) { list.innerHTML = ''; page = 0; }
+
+  const start = page * PAGE_SIZE;
+  const slice = filtered.slice(start, start + PAGE_SIZE);
+
+  if (slice.length === 0 && page === 0) {
+    list.innerHTML = `<div class="empty"><div class="empty-icon">📭</div><p>No channels found</p></div>`;
+    document.getElementById('loadMoreBtn').style.display = 'none';
+    return;
+  }
+
+  slice.forEach((ch, i) => {
+    const idx = start + i + 1;
+    const isFav = favorites.includes(ch.url);
+    const isPlaying = currentChannel && currentChannel.url === ch.url;
+
+    const item = document.createElement('div');
+    item.className = 'channel-item' + (isPlaying ? ' playing' : '');
+    item.dataset.url = ch.url;
+    item.innerHTML = `
+      ${isPlaying ? '<div class="playing-dot"></div>' : `<div class="ch-index">${idx}</div>`}
+      ${ch.logo
+        ? `<img class="ch-logo" src="${escHtml(ch.logo)}" alt="" loading="lazy"
+            onload="this.classList.add('loaded')"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        : ''}
+      <div class="ch-logo-placeholder" ${ch.logo ? 'style="display:none"' : ''}>
+        ${ch.name.substring(0,2).toUpperCase()}
+      </div>
+      <div class="ch-info">
+        <div class="ch-name">${escHtml(ch.name)}</div>
+        <div class="ch-group">${escHtml(ch.group)}</div>
+      </div>
+      <div class="ch-actions">
+        <button class="fav-btn ${isFav ? 'active' : ''}" title="${isFav ? 'Remove favorite' : 'Add favorite'}"
+          onclick="toggleFav(event, '${escAttr(ch.url)}')">
+          ${isFav ? '⭐' : '☆'}
+        </button>
+        <button class="play-btn" onclick="playChannel(event, ${JSON.stringify(JSON.stringify(ch))})">
+          ▶ Play
+        </button>
+      </div>
+    `;
+    item.addEventListener('dblclick', () => playChannel(null, JSON.stringify(ch)));
+    list.appendChild(item);
+    addCachedBadge(item); // restore badge if already checked
+  });
+
+  page++;
+  const hasMore = page * PAGE_SIZE < filtered.length;
+  document.getElementById('loadMoreBtn').style.display = hasMore ? 'block' : 'none';
+}
+
+function loadMore() { renderChannels(false); }
+
+// ── PLAY ──
+function playChannel(e, chJson) {
+  if (e) e.stopPropagation();
+  const ch = typeof chJson === 'string' ? JSON.parse(chJson) : chJson;
+  currentChannel = ch;
+  retryUrl = ch.url;
+
+  document.getElementById('nowPlayingName').textContent = ch.name;
+  const playerSection = document.getElementById('playerSection');
+  const video = document.getElementById('videoPlayer');
+  const errDiv = document.getElementById('playerError');
+
+  playerSection.classList.add('visible');
+  errDiv.style.display = 'none';
+  video.style.display = 'block';
+
+  // Scroll to player
+  playerSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+
+  const url = ch.url;
+  if (url.includes('.m3u8') || url.includes('.ts') || Hls.isSupported()) {
+    if (Hls.isSupported()) {
+      hlsInstance = new Hls({
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        liveSyncDuration: 3,
+        enableWorker: true,
+        xhrSetup: xhr => { xhr.timeout = 10000; }
+      });
+      hlsInstance.loadSource(url);
+      hlsInstance.attachMedia(video);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+      hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) showPlayerError();
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.play().catch(() => showPlayerError());
+    }
+  } else {
+    video.src = url;
+    video.play().catch(() => showPlayerError());
+  }
+
+  video.onerror = () => showPlayerError();
+
+  // Update list UI
+  document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('playing'));
+  const match = document.querySelector(`.channel-item[data-url="${CSS.escape(url)}"]`);
+  if (match) match.classList.add('playing');
+}
+
+function showPlayerError() {
+  document.getElementById('videoPlayer').style.display = 'none';
+  document.getElementById('playerError').style.display = 'block';
+}
+
+function retryStream() {
+  if (retryUrl && currentChannel) playChannel(null, currentChannel);
+}
+
+function closePlayer() {
+  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+  const video = document.getElementById('videoPlayer');
+  video.pause(); video.src = '';
+  document.getElementById('playerSection').classList.remove('visible');
+  document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('playing'));
+  currentChannel = null;
+}
+
+// ── FAVORITES ──
+function toggleFav(e, url) {
+  e.stopPropagation();
+  const idx = favorites.indexOf(url);
+  if (idx === -1) {
+    favorites.push(url);
+    toast('⭐ Added to favorites');
+  } else {
+    favorites.splice(idx, 1);
+    toast('Removed from favorites');
+  }
+  localStorage.setItem('sv_favs', JSON.stringify(favorites));
+  document.getElementById('cnt-fav').textContent = favorites.length;
+  if (currentCat === 'fav') applyFilter();
+  else {
+    // Update button state inline
+    const btn = e.currentTarget;
+    btn.classList.toggle('active', favorites.includes(url));
+    btn.textContent = favorites.includes(url) ? '⭐' : '☆';
+  }
+}
+
+// ── STREAM HEALTH CHECKER ──
+const healthCache = {};
+let hideDeadStreams = false;
+let isChecking = false;
+const CONCURRENCY = 8;
+
+// Server-side check via /api/check — no CORS issues
+async function checkStream(url) {
+  // Return cache if checked within last 10 minutes
+  if (healthCache[url] && (Date.now() - healthCache[url].checked < 10 * 60 * 1000)) {
+    return healthCache[url];
+  }
+  try {
+    const apiUrl = `/api/check?url=${encodeURIComponent(url)}`;
+    const res = await fetch(apiUrl);
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    healthCache[url] = { ...data, checked: Date.now() };
+    return healthCache[url];
+  } catch (_) {
+    // If our own API fails, mark as unknown (not dead!)
+    healthCache[url] = { status: 'unknown', ms: 0, checked: Date.now() };
+    return healthCache[url];
+  }
+}
+
+// Run checks on currently visible channels with concurrency control
+async function startHealthCheck() {
+  if (isChecking) return;
+  isChecking = true;
+
+  const checkBtn = document.getElementById('checkBtn');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressFill = document.getElementById('progressFill');
+  checkBtn.disabled = true;
+  checkBtn.textContent = '⏳ Checking…';
+  progressWrap.style.display = 'block';
+  progressFill.style.width = '0%';
+
+  // Get currently rendered channel items
+  const items = Array.from(document.querySelectorAll('.channel-item[data-url]'));
+  const total = items.length;
+  let done = 0;
+
+  // Mark all as checking
+  items.forEach(item => {
+    const badge = item.querySelector('.health-badge');
+    if (badge) { badge.className = 'health-badge checking'; badge.textContent = '…'; }
+  });
+
+  // Queue-based concurrency
+  async function processQueue(queue) {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      const url = item.dataset.url;
+      const result = await checkStream(url);
+      done++;
+      updateBadge(item, result);
+      if (hideDeadStreams) applyDeadFilter(item, result.status);
+      progressFill.style.width = ((done / total) * 100) + '%';
+      updateHealthStats();
+    }
+  }
+
+  // Split into CONCURRENCY workers
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(CONCURRENCY, total) }, () => processQueue(queue));
+  await Promise.all(workers);
+
+  checkBtn.disabled = false;
+  checkBtn.textContent = '↺ Re-check';
+  progressWrap.style.display = 'none';
+  document.getElementById('healthStats').style.display = 'flex';
+  isChecking = false;
+  toast(`✅ Checked ${total} streams`);
+}
+
+function updateBadge(item, result) {
+  let badge = item.querySelector('.health-badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'health-badge';
+    const actions = item.querySelector('.ch-actions');
+    item.insertBefore(badge, actions);
+  }
+  const { status, ms } = result;
+  badge.className = `health-badge ${status}`;
+  if (status === 'live')         badge.textContent = `● ${ms}ms`;
+  else if (status === 'slow')    badge.textContent = `◑ ${ms}ms`;
+  else if (status === 'unknown') badge.textContent = `? —`;
+  else                           badge.textContent = '✕ dead';
+}
+
+function applyDeadFilter(item, status) {
+  if (status === 'dead') {
+    item.classList.add('dead-stream');
+  } else {
+    item.classList.remove('dead-stream');
+  }
+  // Hide/show only when user clicked "Hide dead streams"
+  if (hideDeadStreams && status === 'dead') {
+    item.style.display = 'none';
+  } else {
+    item.style.display = '';
+  }
+  // Play button ALWAYS enabled — dead badge is warning only, not a block
+  const playBtn = item.querySelector('.play-btn');
+  if (playBtn) {
+    playBtn.disabled = false;
+    playBtn.style.opacity = '1';
+    playBtn.style.cursor = 'pointer';
+  }
+}
+
+function toggleHideDeadStreams() {
+  hideDeadStreams = !hideDeadStreams;
+  const btn = document.getElementById('filterDeadBtn');
+  btn.classList.toggle('active', hideDeadStreams);
+  btn.textContent = hideDeadStreams ? '✓ Dead hidden' : 'Hide dead streams';
+
+  // Apply to all rendered items that already have a known status
+  document.querySelectorAll('.channel-item[data-url]').forEach(item => {
+    const url = item.dataset.url;
+    const cached = healthCache[url];
+    if (cached) applyDeadFilter(item, cached.status);
+    else item.style.display = '';
+  });
+  toast(hideDeadStreams ? '🚫 Dead streams hidden' : '👁 Showing all streams');
+}
+
+function updateHealthStats() {
+  const cached = Object.values(healthCache);
+  document.getElementById('liveCount').textContent = cached.filter(c => c.status === 'live').length;
+  document.getElementById('slowCount').textContent = cached.filter(c => c.status === 'slow').length;
+  document.getElementById('deadCount').textContent = cached.filter(c => c.status === 'dead').length;
+}
+
+// Auto-add badge placeholder when item is rendered (if cached)
+function addCachedBadge(item) {
+  const url = item.dataset.url;
+  const cached = healthCache[url];
+  if (cached) {
+    updateBadge(item, cached);
+    if (hideDeadStreams) applyDeadFilter(item, cached.status);
+  }
+}
+
+// ── SEARCH ──
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(applyFilter, 250);
+});
+
+// ── TOAST ──
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── HELPERS ──
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+function updateLoadingText(t) { document.getElementById('loadingText').textContent = t; }
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
